@@ -1,0 +1,174 @@
+<meta name='viewport' content='width=device-width, initial-scale=1'/><!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<title>બસિર જનરલ સ્ટોર - Udhari</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body { margin:0; font-family:'Poppins',sans-serif; background:#f1f5f9; color:#0f172a; }
+h1 { margin:0; font-size:24px; }
+.app-root { padding:20px; max-width:1000px; margin:auto; }
+.card { background:#fff; border-radius:12px; padding:16px; margin-bottom:12px; box-shadow:0 4px 12px rgba(0,0,0,0.05);}
+button { padding:6px 12px; border:none; border-radius:8px; cursor:pointer; font-weight:600; transition:0.2s; }
+button:hover { opacity:0.85; }
+.btn-green { background:#22c55e; color:#fff; }
+.btn-red { background:#ef4444; color:#fff; }
+.btn-blue { background:#3b82f6; color:#fff; }
+.btn-gray { background:#9ca3af; color:#fff; }
+input, select, textarea { border:1px solid #e5e7eb; border-radius:8px; padding:6px 10px; font-size:14px; }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th, td { padding:8px; border-bottom:1px solid #f1f5f9; }
+th { background:#f9fafb; text-align:left; }
+tr:nth-child(even){background:#f9fafb;}
+.people-list { max-height:55vh; overflow:auto; margin-top:10px; }
+.person { display:flex; align-items:center; justify-content:space-between; padding:10px; border-bottom:1px solid #f1f5f9; cursor:pointer; border-radius:8px; }
+.person.active { background:#e0f2fe; }
+.avatar { width:40px; height:40px; border-radius:50%; background:#3b82f6; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:600; margin-right:10px; flex-shrink:0; }
+.modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index:9999; }
+.modal { background:#fff; border-radius:12px; padding:20px; width:400px; box-shadow:0 8px 24px rgba(0,0,0,0.2);}
+.txn-bar input { margin-right:6px; margin-top:6px; }
+.txn-bar button { margin-top:6px; }
+</style>
+</head>
+<body>
+<div class="app-root">
+<header style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
+  <h1>બસિર જનરલ સ્ટોર</h1>
+  <div style="flex:1"></div>
+  <button class="btn-green" onclick="openAddPerson()">+ ગ્રાહક</button>
+  <button class="btn-blue" onclick="exportCSV()">Export CSV</button>
+  <button class="btn-blue" onclick="backupJSON()">Backup JSON</button>
+  <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importJSON(event)">
+  <label for="importFile" class="btn-gray" style="cursor:pointer;">Import JSON</label>
+  <button onclick="window.print()">Print</button>
+  <button class="btn-red" onclick="clearAll()">Reset</button>
+</header>
+
+<div style="display:grid; grid-template-columns:1fr 2fr; gap:16px;">
+  <!-- Left: People -->
+  <div>
+    <div class="card">
+      <input id="search" placeholder="ખોજો: નામ અથવા નંબર" style="width:100%;" oninput="render()">
+      <div class="people-list" id="peopleList"></div>
+      <div style="margin-top:8px;" id="personActions"></div>
+    </div>
+    <div class="card">
+      <div style="font-size:13px; color:#6b7280;">કુલ બેલેન્સ (બધા):</div>
+      <div id="grandBalance" style="font-size:22px; font-weight:700;"></div>
+    </div>
+  </div>
+
+  <!-- Right: Transactions -->
+  <div>
+    <div class="card">
+      <div id="txnBar" class="txn-bar"></div>
+      <div style="margin-top:12px; overflow:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>તારીખ</th><th>ગ્રાહક</th><th>નોંધ</th><th style="text-align:right">રકમ</th><th>ક્રિયા</th>
+            </tr>
+          </thead>
+          <tbody id="txnTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="modal-backdrop" style="display:none;" onclick="closeModal(event)">
+<div class="modal" onclick="event.stopPropagation()">
+<h2>નવો ગ્રાહક ઉમેરો</h2>
+<input id="newName" placeholder="નામ"><br><br>
+<input id="newPhone" placeholder="મોબાઇલ"><br><br>
+<input id="newNote" placeholder="નોંધ (વૈકલ્પિક)"><br><br>
+<input id="newAmount" type="number" placeholder="શરૂઆત બેલેન્સ"><br><br>
+<button class="btn-gray" onclick="closeModal()">રદ્દ</button>
+<button class="btn-green" onclick="savePerson()">સેવ</button>
+</div>
+</div>
+
+<script>
+let people=[], txns=[], selected=null, editingTxn=null;
+
+function saveData(){ localStorage.setItem("udhari_people",JSON.stringify(people)); localStorage.setItem("udhari_txns",JSON.stringify(txns)); }
+function loadData(){ people=JSON.parse(localStorage.getItem("udhari_people")||"[]"); txns=JSON.parse(localStorage.getItem("udhari_txns")||"[]"); }
+
+function openAddPerson(){ document.getElementById("modal").style.display="flex"; }
+function closeModal(){ document.getElementById("modal").style.display="none"; }
+
+function savePerson(){
+const name=document.getElementById("newName").value.trim();
+const phone=document.getElementById("newPhone").value.trim();
+const note=document.getElementById("newNote").value.trim();
+const amount=Number(document.getElementById("newAmount").value||0);
+if(!name) return alert("નામ જરૂરી છે");
+const id="p"+Math.random().toString(36).slice(2,9);
+people.push({id,name,phone,note});
+if(amount!==0){ txns.push({id:"t"+Math.random().toString(36).slice(2,9),personId:id,date:today(),amount,note:"Opening Balance"});}
+saveData(); closeModal(); render();
+}
+
+function addTxn(amount,note){ if(!selected) return alert("પહેલા ગ્રાહક પસંદ કરો"); txns.push({id:"t"+Math.random().toString(36).slice(2,9), personId:selected, date:today(), amount, note}); saveData(); render(); }
+function removeTxn(id){ if(confirm("હટાવવા માંગો છો?")){ txns=txns.filter(t=>t.id!==id); saveData(); render(); } }
+function editTxn(id){ editingTxn=id; render(); }
+function saveTxn(id){ const amt=Number(document.getElementById("editAmt_"+id).value); const note=document.getElementById("editNote_"+id).value; txns=txns.map(t=>t.id===id?{...t,amount:amt,note}:t); editingTxn=null; saveData(); render(); }
+function removePerson(id){ if(confirm("પક્કા? આ ગ્રાહકની બધી એન્ટ્રી પણ હટશે")){ people=people.filter(p=>p.id!==id); txns=txns.filter(t=>t.personId!==id); if(selected===id) selected=null; saveData(); render(); } }
+function clearAll(){ if(confirm("બધો ડેટા દૂર થશે!")){ people=[]; txns=[]; selected=null; saveData(); render(); } }
+
+function today(){ return new Date().toISOString().slice(0,10);}
+function formatMoney(n){ return (n<0?"-":"")+Math.abs(n).toLocaleString("en-IN");}
+
+function render(){
+const q=document.getElementById("search").value.toLowerCase();
+const list=document.getElementById("peopleList"); list.innerHTML="";
+let balances={}; people.forEach(p=>balances[p.id]=0); txns.forEach(t=>balances[t.personId]=(balances[t.personId]||0)+t.amount);
+
+people.filter(p=>!q||p.name.toLowerCase().includes(q)||p.phone.includes(q)).forEach(p=>{
+const div=document.createElement("div"); div.className="person"+(p.id===selected?" active":"");
+const initials=p.name.split(" ").map(x=>x[0].toUpperCase()).join("").slice(0,2);
+div.innerHTML=`<div style="display:flex;align-items:center"><div class="avatar">${initials}</div><div><div style="font-weight:600">${p.name}</div>${p.phone?`<div style="font-size:12px;color:#6b7280">${p.phone}</div>`:""}${p.note?`<div style="font-size:12px;color:#6b7280">${p.note}</div>`:""}</div></div><div style="font-weight:700; color:${balances[p.id]>0?"green":balances[p.id]<0?"crimson":"#374151"}">${formatMoney(balances[p.id])}</div>`;
+div.onclick=()=>{selected=p.id; render();};
+list.appendChild(div);
+});
+
+document.getElementById("personActions").innerHTML=selected?`<button class="btn-red" onclick="removePerson('${selected}')">હટાવો</button>`:"";
+
+let grand=0; txns.forEach(t=>grand+=t.amount);
+document.getElementById("grandBalance").textContent=formatMoney(grand);
+document.getElementById("grandBalance").style.color=grand>0?"green":grand<0?"crimson":"#111";
+
+const bar=document.getElementById("txnBar");
+if(selected){
+const person=people.find(p=>p.id===selected);
+bar.innerHTML=`<div style="font-size:13px;color:#6b7280;margin-bottom:6px">એન્ટ્રી ગ્રાહક: <b>${person.name}</b></div>
+<input type="number" id="txnAmt" placeholder="રકમ"> 
+<input id="txnNote" placeholder="નોંધ">
+<button class="btn-green" onclick="addTxn(Number(document.getElementById('txnAmt').value),document.getElementById('txnNote').value)">દેવા (+)</button>
+<button class="btn-red" onclick="addTxn(-Math.abs(Number(document.getElementById('txnAmt').value)),document.getElementById('txnNote').value)">લેવા (−)</button>`;
+} else bar.innerHTML=`<div style="color:#6b7280">કોઈ ગ્રાહક પસંદ નથી</div>`;
+
+const tbody=document.getElementById("txnTable"); tbody.innerHTML="";
+txns.filter(t=>!selected||t.personId===selected).sort((a,b)=>b.date.localeCompare(a.date)).forEach(t=>{
+const p=people.find(p=>p.id===t.personId)||{};
+const tr=document.createElement("tr");
+if(editingTxn===t.id){
+tr.innerHTML=`<td>${t.date}</td><td>${p.name||"--"}</td><td><input id="editNote_${t.id}" value="${t.note||""}"></td><td><input type="number" id="editAmt_${t.id}" value="${t.amount}"></td><td><button class="btn-blue" onclick="saveTxn('${t.id}')">Save</button><button class="btn-gray" onclick="editingTxn=null;render()">Cancel</button></td>`;
+}else{
+tr.innerHTML=`<td>${t.date}</td><td>${p.name||"--"}</td><td>${t.note||""}</td><td style="text-align:right;font-weight:700;color:${t.amount>0?"green":t.amount<0?"crimson":"#374151"}">${formatMoney(t.amount)}</td><td><button class="btn-blue" onclick="editTxn('${t.id}')">Update</button><button class="btn-gray" onclick="removeTxn('${t.id}')">Delete</button></td>`;
+}
+tbody.appendChild(tr);
+});
+}
+
+function backupJSON(){ const blob=new Blob([JSON.stringify({people,txns},null,2)],{type:"application/json"}); download(blob,"backup.json"); }
+function exportCSV(){ let rows=[["date","person","phone","amount","note"]]; txns.forEach(t=>{const p=people.find(x=>x.id===t.personId)||{};rows.push([t.date,p.name||"",p.phone||"",t.amount,t.note||""]);}); const csv=rows.map(r=>r.join(",")).join("\n"); download(new Blob([csv],{type:"text/csv"}),"udhari.csv"); }
+function download(blob,name){ const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;a.click(); }
+function importJSON(e){const f=e.target.files[0];const rdr=new FileReader();rdr.onload=()=>{try{const d=JSON.parse(rdr.result);people=d.people||[];txns=d.txns||[];saveData();render();}catch(err){alert("ખોટી ફાઇલ");}};rdr.readAsText(f);}
+
+loadData(); render();
+</script>
+</body>
+</html>
